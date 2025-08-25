@@ -1,23 +1,15 @@
 import os
 import re
-import shutil
-from bs4 import BeautifulSoup, Comment
+from bs4 import BeautifulSoup
 
 def fix_all_html_files(root_dir):
     """
-    This script performs a full fix on HTML files by ensuring a correct <head>
-    section is present and that all file paths are absolute and correct.
-    It also removes old, problematic Readymag-specific code and handles
-    incomplete HTML fragments.
+    This script fixes the hardcoded relative paths in HTML files from a Readymag export.
+    It ensures all CSS, JS, and image links are absolute paths, and it cleans up
+    unnecessary Readymag-specific code that causes issues on external hosts.
     """
     print("Starting a super-robust fix on all HTML files...")
     
-    # Path to the main stylesheet and scripts from the dist folder
-    main_css_path = '/dist/viewer.css'
-    custom_fonts_path = '/dist/css/custom_fonts.css'
-    main_js_path = '/dist/viewer.js'
-    screenshoter_path = 'screenshoter.js' # This is a known Readymag script to remove
-
     index_path = os.path.join(root_dir, 'index.html')
     if not os.path.exists(index_path):
         print("Error: index.html not found in the root directory. Aborting.")
@@ -44,7 +36,7 @@ def fix_all_html_files(root_dir):
                     
                     changed = False
                     
-                    # Check and fix incomplete HTML fragments.
+                    # Ensure the file has a complete HTML structure.
                     if not soup.find('html'):
                         new_soup = BeautifulSoup('<html><head></head><body></body></html>', 'html.parser')
                         for tag in soup.contents:
@@ -55,7 +47,10 @@ def fix_all_html_files(root_dir):
                     
                     # Replace the head section with the correct one from index.html.
                     if soup.head:
+                        original_title_tag = soup.title
                         soup.head.replace_with(correct_head_content)
+                        if original_title_tag and soup.head:
+                            soup.head.insert(0, original_title_tag)
                         changed = True
                         print("  - Replaced existing <head> section.")
                     else:
@@ -67,28 +62,16 @@ def fix_all_html_files(root_dir):
                             changed = True
                             print("  - Added missing <head> section.")
 
-                    # Find and remove hardcoded Readymag links and scripts.
-                    for script in soup.find_all('script'):
-                        if script.get('src') and ('rmcdn' in script['src'] or screenshoter_path in script['src']):
-                            script.decompose()
-                            changed = True
-                            print("  - Removed Readymag script link.")
-                    
-                    for link_tag in soup.find_all('link', href=True):
-                        if 'rmcdn' in link_tag['href']:
-                            link_tag.decompose()
-                            changed = True
-                            print("  - Removed Readymag link.")
-
                     # Correct all internal paths to be absolute, starting from the root.
                     for tag in soup.find_all(['img', 'script', 'link']):
                         if tag.name == 'img' and tag.get('src'):
-                            if not tag['src'].startswith('/'):
+                            # Use a more robust regex to find and replace relative paths
+                            if re.match(r'^(?!/|http)', tag['src']):
                                 tag['src'] = '/' + tag['src']
                                 changed = True
                                 print(f"  - Converted relative image path to absolute: {tag['src']}")
                         elif tag.name == 'script' and tag.get('src'):
-                             if not tag['src'].startswith('/') and 'dist' in tag['src']:
+                            if not tag['src'].startswith('/') and 'dist' in tag['src']:
                                 tag['src'] = '/' + tag['src']
                                 changed = True
                                 print(f"  - Converted relative script path to absolute: {tag['src']}")
@@ -97,14 +80,27 @@ def fix_all_html_files(root_dir):
                                 tag['href'] = '/' + tag['href']
                                 changed = True
                                 print(f"  - Converted relative CSS link path to absolute: {tag['href']}")
-                                
-                        # Fix broken iframe sources.
-                        iframe_tag = soup.find('iframe')
-                        if iframe_tag and iframe_tag.get('src') and 'rmcdn' in iframe_tag['src']:
-                            iframe_tag['src'] = '#' # Replace with a placeholder or local URL if needed
+
+                    # Remove old, broken Readymag code.
+                    for script in soup.find_all('script'):
+                        if script.get('src') and ('rmcdn' in script['src'] or 'screenshoter.js' in script['src']):
+                            script.decompose()
                             changed = True
-                            print("  - Replaced broken iframe source.")
-                            
+                            print("  - Removed a problematic Readymag script link.")
+
+                    for link_tag in soup.find_all('link', href=True):
+                        if 'rmcdn' in link_tag['href']:
+                            link_tag.decompose()
+                            changed = True
+                            print("  - Removed a problematic Readymag link.")
+
+                    for meta_tag in soup.find_all('meta', property='og:image'):
+                         if meta_tag.get('content') and 'rmcdn' in meta_tag['content']:
+                            meta_tag.decompose()
+                            changed = True
+                            print("  - Removed a problematic Open Graph meta tag.")
+
+                    # Save the cleaned file.
                     if changed:
                         with open(filepath, 'w', encoding='utf-8') as f:
                             f.write(str(soup))

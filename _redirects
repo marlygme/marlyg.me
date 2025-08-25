@@ -1,0 +1,7 @@
+# Forcing all www traffic to the root domain.
+https://www.marlyg.me/* https://marlyg.me/:splat 301!
+
+# Handling clean URL redirects for pages.
+/projects /projects.html 301!
+/webdesign /webdesign.html 301!
+/about /about.html 301!
